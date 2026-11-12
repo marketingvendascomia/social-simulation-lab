@@ -99,7 +99,8 @@ export class Bridge {
     return this.call<Graph>("/graphs", { id, ontology, documents });
   }
   start(id: string, personas: Persona[], config: RunConfig) {
-    return this.call("/sessions", { id, personas, config });
+    const { businessAgentId, ...oasisConfig } = config;
+    return this.call("/sessions", { id, personas, config: oasisConfig });
   }
   step(id: string, round: number) {
     return this.call<{ actions: Action[] }>(`/sessions/${id}/step`, { round });
