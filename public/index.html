@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Social Simulation Lab</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <span class="mark">S / L</span>
+      <div>
+        <p class="eyebrow">LABORATÓRIO DE CENÁRIOS</p>
+        <h1>Social Simulation Lab</h1>
+      </div>
+      <span id="mode" class="badge">Conectando</span>
+    </header>
+    <main>
+      <p class="intro">
+        Explore possíveis reações. Acompanhe as evidências, as hipóteses e os
+        acontecimentos de cada execução.
+      </p>
+      <details>
+        <summary>Chave de acesso</summary>
+        <label
+          >API key
+          <input
+            id="key"
+            type="password"
+            autocomplete="off"
+            placeholder="Se configurada no servidor" /></label
+        ><button id="connect">Conectar</button>
+      </details>
+      <p id="notice" role="status" aria-live="polite"></p>
+      <div class="layout">
+        <section>
+          <h2>01 / Contexto</h2>
+          <form id="project-form">
+            <label
+              >Nome do projeto<input
+                name="name"
+                required
+                maxlength="120"
+                value="Ensaio de comunicação" /></label
+            ><label
+              >Cenário<textarea
+                name="scenario"
+                required
+                minlength="10"
+                rows="3"
+              >
+Como diferentes públicos reagiriam a um aumento de preço acompanhado de novos benefícios?</textarea></label
+            ><label
+              >Material de referência<textarea
+                name="text"
+                required
+                minlength="10"
+                rows="5"
+                placeholder="Cole informações, pesquisas ou notícias que sustentam o cenário."
+              ></textarea></label
+            ><button type="submit">Criar projeto</button>
+          </form>
+          <label
+            >Projeto<select id="project">
+              <option value="">Selecione um projeto</option>
+            </select></label
+          ><label
+            >Adicionar documento (até 8 MB)<input
+              id="upload"
+              type="file"
+              accept=".pdf,.md,.markdown,.txt" /></label
+          ><button id="upload-button">Adicionar documento</button>
+          <h2>02 / Experimento</h2>
+          <form id="run-form">
+            <div class="fields">
+              <label
+                >Rodadas<input
+                  name="rounds"
+                  type="number"
+                  min="1"
+                  max="20"
+                  value="5"
+                  required /></label
+              ><label
+                >Máximo de agentes<input
+                  name="maxAgents"
+                  type="number"
+                  min="2"
+                  max="20"
+                  value="4"
+                  required
+              /></label>
+            </div>
+            <label
+              >Plataforma<select name="platform">
+                <option value="twitter">Twitter simulado</option>
+                <option value="reddit">Reddit simulado</option>
+                <option value="both">Ambas</option>
+              </select></label
+            ><label
+              >Evento agendado (opcional)<textarea
+                name="event"
+                rows="2"
+                placeholder="Mensagem publicada pelo agente 0 na primeira rodada"
+              ></textarea></label
+            ><button type="submit">Executar cenário</button>
+          </form>
+          <h3>Execuções</h3>
+          <div id="runs"></div>
+        </section>
+        <section class="results">
+          <h2>03 / Observação</h2>
+          <div id="empty">
+            Crie um projeto e execute um cenário para acompanhar as nove etapas.
+          </div>
+          <div id="result" hidden>
+            <p id="run-status"></p>
+            <ol id="stages"></ol>
+            <div id="metrics" class="metrics"></div>
+            <details>
+              <summary>Grafo e personas</summary>
+              <pre id="graph"></pre>
+            </details>
+            <details open>
+              <summary>Timeline</summary>
+              <div id="timeline"></div>
+            </details>
+            <h3>Relatório</h3>
+            <pre id="report" class="report"></pre>
+            <button id="download">Baixar relatório .md</button>
+            <h3>Explorar</h3>
+            <form id="explore-form">
+              <label
+                >Interlocutor<select id="agent">
+                  <option value="">Agente do relatório</option>
+                </select></label
+              ><label
+                >Pergunta<textarea
+                  name="question"
+                  required
+                  minlength="3"
+                  rows="2"
+                ></textarea></label
+              ><button type="submit">Enviar pergunta</button>
+            </form>
+            <pre id="answer" class="report"></pre>
+            <button id="close-session" class="secondary">
+              Encerrar ambiente OASIS
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+    <footer>
+      Resultados simulados não equivalem a pesquisa com pessoas ou previsão
+      calibrada.
+    </footer>
+  </body>
+</html>
