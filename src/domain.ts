@@ -1,5 +1,19 @@
 import { z } from "zod";
 
+export const platformSchema = z.enum([
+  "instagram",
+  "google_reviews",
+  "twitter",
+  "reddit",
+]);
+export type Platform = z.infer<typeof platformSchema>;
+export const isNativePlatform = (
+  platform: string,
+): platform is "instagram" | "google_reviews" =>
+  platform === "instagram" || platform === "google_reviews";
+export const isOasisPlatform = (platform: string) =>
+  platform === "twitter" || platform === "reddit";
+
 export const stages = [
   "entrada",
   "ontologia",
@@ -16,11 +30,8 @@ export const runConfig = z
     rounds: z.number().int().min(1).max(20).default(5),
     maxAgents: z.number().int().min(2).max(20).default(4),
     minutesPerRound: z.number().int().min(1).max(120).default(60),
-    platforms: z
-      .array(z.enum(["twitter", "reddit"]))
-      .min(1)
-      .max(2)
-      .default(["twitter"]),
+    platforms: z.array(platformSchema).min(1).max(2).default(["instagram"]),
+    businessAgentId: z.number().int().min(0).max(19).default(0),
     seed: z.number().int().min(0).max(2147483647).default(42),
     memory: z.boolean().default(true),
     events: z
@@ -35,6 +46,11 @@ export const runConfig = z
       .default([]),
   })
   .superRefine((v, ctx) => {
+    if (v.businessAgentId >= v.maxAgents)
+      ctx.addIssue({
+        code: "custom",
+        message: "Agente da empresa fora dos limites",
+      });
     if (new Set(v.platforms).size !== v.platforms.length)
       ctx.addIssue({ code: "custom", message: "Plataformas duplicadas" });
     if (v.events.some((e) => e.round >= v.rounds || e.agentId >= v.maxAgents))
@@ -111,6 +127,8 @@ export interface Action {
   type: string;
   content: string;
   origin: "simulation_event";
+  targetId?: string;
+  stars?: number;
 }
 export interface Run {
   id: string;
@@ -147,9 +165,57 @@ export function rng(seed: number) {
 export function metrics(actions: Action[]) {
   const byType: Record<string, number> = {};
   for (const a of actions) byType[a.type] = (byType[a.type] ?? 0) + 1;
+  const reviews = actions.filter(
+    (a) =>
+      a.platform === "google_reviews" &&
+      a.type === "CREATE_REVIEW" &&
+      Number.isInteger(a.stars) &&
+      a.stars! >= 1 &&
+      a.stars! <= 5,
+  );
+  const reviewIds = new Set(reviews.map((a) => a.id));
+  const replied = new Set(
+    actions
+      .filter(
+        (a) =>
+          a.platform === "google_reviews" &&
+          a.type === "REPLY_REVIEW" &&
+          a.targetId &&
+          reviewIds.has(a.targetId),
+      )
+      .map((a) => a.targetId),
+  );
+  const histogram = Object.fromEntries(
+    [1, 2, 3, 4, 5].map((stars) => [
+      stars,
+      reviews.filter((a) => a.stars === stars).length,
+    ]),
+  );
+  const instagram = actions.filter((a) => a.platform === "instagram");
   return {
     totalActions: actions.length,
     activeAgents: new Set(actions.map((a) => a.agentId)).size,
     byType,
+    instagram: {
+      posts: instagram.filter((a) => a.type === "CREATE_POST").length,
+      comments: instagram.filter((a) => a.type === "CREATE_COMMENT").length,
+      likes: instagram.filter((a) => a.type === "LIKE_POST").length,
+    },
+    googleReviews: {
+      count: reviews.length,
+      averageStars: reviews.length
+        ? Number(
+            (
+              reviews.reduce((sum, a) => sum + a.stars!, 0) / reviews.length
+            ).toFixed(2),
+          )
+        : null,
+      histogram,
+      answered: replied.size,
+      unanswered: reviews.length - replied.size,
+      responseRate: reviews.length
+        ? Number(((replied.size / reviews.length) * 100).toFixed(1))
+        : null,
+    },
   };
 }

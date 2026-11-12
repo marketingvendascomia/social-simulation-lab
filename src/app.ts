@@ -11,7 +11,13 @@ import { PDFParse } from "pdf-parse";
 import { Store } from "./store.js";
 import { Pipeline } from "./pipeline.js";
 import { Bridge, LanguageModel } from "./providers.js";
-import { metrics, runConfig, type Project } from "./domain.js";
+import {
+  metrics,
+  runConfig,
+  platformSchema,
+  isOasisPlatform,
+  type Project,
+} from "./domain.js";
 
 export interface Settings {
   mode: "demo" | "live";
@@ -69,15 +75,13 @@ export async function createApp(settings: Settings) {
   });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof z.ZodError)
-      return reply
-        .code(400)
-        .send({
-          error: "Dados inválidos",
-          issues: error.issues.map((i) => ({
-            path: i.path,
-            message: i.message,
-          })),
-        });
+      return reply.code(400).send({
+        error: "Dados inválidos",
+        issues: error.issues.map((i) => ({
+          path: i.path,
+          message: i.message,
+        })),
+      });
     if (
       error instanceof Error &&
       "statusCode" in error &&
@@ -85,11 +89,9 @@ export async function createApp(settings: Settings) {
       error.statusCode < 500
     )
       return reply.code(error.statusCode).send({ error: error.message });
-    return reply
-      .code(500)
-      .send({
-        error: "Erro interno. Verifique a configuração e os serviços externos.",
-      });
+    return reply.code(500).send({
+      error: "Erro interno. Verifique a configuração e os serviços externos.",
+    });
   });
   await app.register(staticFiles, {
     root: settings.staticDir ?? resolve("public"),
@@ -113,15 +115,13 @@ export async function createApp(settings: Settings) {
     storage: "sqlite-single-process",
   }));
   app.get("/api/projects", () =>
-    store
-      .projects()
-      .map(({ documents, ...project }) => ({
-        ...project,
-        documents: documents.map(({ text, ...d }) => ({
-          ...d,
-          characters: text.length,
-        })),
+    store.projects().map(({ documents, ...project }) => ({
+      ...project,
+      documents: documents.map(({ text, ...d }) => ({
+        ...d,
+        characters: text.length,
       })),
+    })),
   );
   app.post("/api/projects", async (request, reply) => {
     const body = z
@@ -166,11 +166,9 @@ export async function createApp(settings: Settings) {
       }
     } else text = buffer.toString("utf8");
     if (text.trim().length < 10)
-      return reply
-        .code(400)
-        .send({
-          error: "Texto insuficiente; PDF escaneado pode exigir OCR externo",
-        });
+      return reply.code(400).send({
+        error: "Texto insuficiente; PDF escaneado pode exigir OCR externo",
+      });
     if (
       project.documents.reduce((n, d) => n + d.text.length, 0) + text.length >
       250_000
@@ -184,14 +182,12 @@ export async function createApp(settings: Settings) {
       text,
     });
     store.saveProject(project);
-    return reply
-      .code(201)
-      .send({
-        documents: project.documents.map(({ text, ...d }) => ({
-          ...d,
-          characters: text.length,
-        })),
-      });
+    return reply.code(201).send({
+      documents: project.documents.map(({ text, ...d }) => ({
+        ...d,
+        characters: text.length,
+      })),
+    });
   });
   app.post("/api/projects/:id/runs", async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -211,22 +207,18 @@ export async function createApp(settings: Settings) {
       settings.mode === "live" &&
       config.maxAgents * config.rounds * config.platforms.length > 400
     )
-      return reply
-        .code(400)
-        .send({
-          error:
-            "Reduza agentes, rodadas ou plataformas: limite de 400 ativações potenciais",
-        });
+      return reply.code(400).send({
+        error:
+          "Reduza agentes, rodadas ou plataformas: limite de 400 ativações potenciais",
+      });
     const run = pipeline.create(id, config);
     return reply.code(202).send(run);
   });
   app.get("/api/runs", () =>
-    store
-      .runs()
-      .map(({ actions, report, graph, ...run }) => ({
-        ...run,
-        metrics: metrics(actions),
-      })),
+    store.runs().map(({ actions, report, graph, ...run }) => ({
+      ...run,
+      metrics: metrics(actions),
+    })),
   );
   app.get("/api/runs/:id", async (request, reply) => {
     const run = store.run((request.params as { id: string }).id);
@@ -239,20 +231,24 @@ export async function createApp(settings: Settings) {
       .object({
         question: z.string().trim().min(3).max(2000),
         agentId: z.number().int().min(0).optional(),
+        platform: platformSchema.optional(),
       })
       .parse(request.body);
     const id = (request.params as { id: string }).id;
     if (!store.run(id))
       return reply.code(404).send({ error: "Execução não encontrada" });
     try {
-      return await pipeline.explore(id, body.question, body.agentId);
+      return await pipeline.explore(
+        id,
+        body.question,
+        body.agentId,
+        body.platform,
+      );
     } catch {
-      return reply
-        .code(409)
-        .send({
-          error:
-            "Consulta indisponível. Verifique conclusão, agente, limite LLM e sessão OASIS ativa.",
-        });
+      return reply.code(409).send({
+        error:
+          "Consulta indisponível. Verifique conclusão, agente, limite LLM e sessão OASIS ativa.",
+      });
     }
   });
   app.post("/api/runs/:id/close", async (request, reply) => {
@@ -264,7 +260,8 @@ export async function createApp(settings: Settings) {
       run.status !== "interrupted"
     )
       return reply.code(409).send({ error: "Aguarde a execução terminar" });
-    if (run.mode === "live") await bridge!.close(run.id);
+    if (run.mode === "live" && run.config.platforms.some(isOasisPlatform))
+      await bridge!.close(run.id);
     return { closed: true };
   });
   app.addHook("onClose", async () => store.close());

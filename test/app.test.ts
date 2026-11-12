@@ -264,7 +264,10 @@ test("live pipeline uses external contracts in order and fails closed on provide
     const pipeline = new Pipeline(store, "live", llm, bridge);
     const run = await completed(
       store,
-      pipeline.create("p", runConfig.parse({ rounds: 1 })).id,
+      pipeline.create(
+        "p",
+        runConfig.parse({ rounds: 1, platforms: ["twitter"] }),
+      ).id,
     );
     assert.equal(run.status, "completed");
     assert.deepEqual(calls, [
@@ -286,7 +289,7 @@ test("live pipeline uses external contracts in order and fails closed on provide
       store,
       new Pipeline(store, "live", llm, broken).create(
         "p",
-        runConfig.parse({ rounds: 1 }),
+        runConfig.parse({ rounds: 1, platforms: ["twitter"] }),
       ).id,
     );
     assert.equal(failed.status, "failed");

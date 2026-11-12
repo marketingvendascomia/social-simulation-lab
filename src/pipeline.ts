@@ -2,15 +2,19 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Store } from "./store.js";
 import { Bridge, LanguageModel } from "./providers.js";
+import { nativeRound, interviewNative } from "./native-social.js";
 import {
   metrics,
   ontologySchema,
   personaSchema,
   rng,
+  isNativePlatform,
+  isOasisPlatform,
   type Action,
   type Project,
   type Run,
   type RunConfig,
+  type Platform,
 } from "./domain.js";
 
 export class Pipeline {
@@ -102,11 +106,25 @@ export class Pipeline {
           ? {
               id: run.id,
               origin: "demo",
-              nodes: ["Cliente", "Empresa", "Jornalista", "Especialista"]
+              nodes: (run.config.platforms.some(isNativePlatform)
+                ? [
+                    "Empresa",
+                    "Cliente frequente",
+                    "Cliente sensível ao preço",
+                    "Cliente novo",
+                  ]
+                : ["Cliente", "Empresa", "Jornalista", "Especialista"]
+              )
                 .slice(0, run.config.maxAgents)
                 .map((name, i) => ({
                   id: `demo-${i}`,
-                  name,
+                  name: run.config.platforms.some(isNativePlatform)
+                    ? i === (run.config.businessAgentId ?? 0)
+                      ? "Empresa"
+                      : name === "Empresa"
+                        ? "Cliente"
+                        : name
+                    : name,
                   type: "Stakeholder",
                   summary: "Papel hipotético; não extraído dos documentos.",
                 })),
@@ -130,7 +148,15 @@ export class Pipeline {
             : await this.llm!.structured(
                 run,
                 "Crie persona hipotética sem inventar fatos biográficos como verdade. JSON: {bio,persona,activityProbability:0..1,activeHours:[0..23]}.",
-                { node, scenario: project.scenario },
+                {
+                  node,
+                  scenario: project.scenario,
+                  simulationRole: run.config.platforms.some(isNativePlatform)
+                    ? run.personas.length === (run.config.businessAgentId ?? 0)
+                      ? "Representante da empresa neste experimento hipotético"
+                      : "Participante hipotético; não alegue experiência real como cliente"
+                    : "Participante da simulação social",
+                },
                 personaSchema,
               );
         run.personas.push({
@@ -149,8 +175,17 @@ export class Pipeline {
         "preparacao",
         "Validando rodadas, horários e eventos agendados",
       );
-      if (run.mode === "live") {
-        await this.bridge!.start(run.id, run.personas, run.config);
+      if (
+        run.config.platforms.some(isNativePlatform) &&
+        (run.config.businessAgentId ?? 0) >= run.personas.length
+      )
+        throw new Error("Agente da empresa não foi criado");
+      const oasisPlatforms = run.config.platforms.filter(isOasisPlatform);
+      if (run.mode === "live" && oasisPlatforms.length) {
+        await this.bridge!.start(run.id, run.personas, {
+          ...run.config,
+          platforms: oasisPlatforms,
+        });
         sessionStarted = true;
       }
       this.stage(run, "simulacao", "Executando rodadas");
@@ -159,10 +194,26 @@ export class Pipeline {
         const actions =
           run.mode === "demo"
             ? this.demoRound(run, project, round, random)
-            : (await this.bridge!.step(run.id, round)).actions;
+            : oasisPlatforms.length
+              ? (await this.bridge!.step(run.id, round)).actions
+              : [];
         for (const action of actions)
           if (!run.actions.some((a) => a.id === action.id))
             run.actions.push(action);
+        for (const platform of run.config.platforms.filter(isNativePlatform)) {
+          const native = await nativeRound(
+            run,
+            project,
+            platform,
+            round,
+            random,
+            this.llm,
+          );
+          for (const action of native)
+            if (!run.actions.some((a) => a.id === action.id))
+              run.actions.push(action);
+          actions.push(...native);
+        }
         this.stage(
           run,
           "simulacao",
@@ -185,12 +236,20 @@ export class Pipeline {
       );
       const interview =
         run.mode === "live"
-          ? await this.bridge!.interview(
-              run.id,
-              0,
-              run.config.platforms[0]!,
-              "Qual sua avaliação do cenário e o que influenciou sua reação?",
-            )
+          ? isNativePlatform(run.config.platforms[0]!)
+            ? await interviewNative(
+                run,
+                run.config.platforms[0]!,
+                0,
+                "Qual sua avaliação do cenário e o que influenciou sua reação?",
+                this.llm!,
+              )
+            : await this.bridge!.interview(
+                run.id,
+                0,
+                run.config.platforms[0]!,
+                "Qual sua avaliação do cenário e o que influenciou sua reação?",
+              )
           : {
               answer:
                 "Entrevista demonstrativa: eu precisaria de mais informações para avaliar o cenário.",
@@ -207,7 +266,7 @@ export class Pipeline {
           ? this.demoReport(run, project)
           : await this.llm!.text(
               run,
-              "Escreva relatório Markdown com contexto, acontecimentos, diferentes perspectivas, limitações e referências [document:ID] e [action:ID]. Use somente referências existentes. Entrevistas são sintéticas. Não invente métricas ou probabilidades. Cite que não é previsão calibrada.",
+              "Escreva relatório Markdown com contexto, acontecimentos, diferentes perspectivas, limitações e referências [document:ID] e [action:ID]. Use somente referências existentes. Analise Instagram e avaliações Google separadamente, quando presentes. Use a média das estrelas e a taxa de respostas fornecidas como métricas simuladas, nunca como nota real do Google. Curtidas e comentários não são alcance. Entrevistas são sintéticas. Não invente métricas ou probabilidades. Cite que não é previsão calibrada.",
               {
                 scenario: project.scenario,
                 documents: project.documents,
@@ -217,11 +276,18 @@ export class Pipeline {
                 interview,
               },
             );
+      if (run.mode === "demo") {
+        const summary = metrics(run.actions);
+        if (run.config.platforms.includes("instagram"))
+          run.report += `\n\n## Instagram simulado\n${summary.instagram.posts} publicações, ${summary.instagram.comments} comentários e ${summary.instagram.likes} curtidas sintéticas. Sem previsão de alcance.`;
+        if (run.config.platforms.includes("google_reviews"))
+          run.report += `\n\n## Avaliações Google simuladas\n${summary.googleReviews.count} avaliações; média ${summary.googleReviews.averageStars ?? "sem avaliações"}/5; ${summary.googleReviews.answered} respondidas e ${summary.googleReviews.unanswered} sem resposta. Essa média pertence apenas à simulação, não ao perfil real da empresa.`;
+      }
       run.status = "completed";
       this.stage(
         run,
         "exploracao",
-        "Relatório disponível. Entrevistas live exigem sessão Python ainda ativa.",
+        "Relatório disponível. Instagram/Google usam motor próprio em Node; entrevistas Twitter/Reddit exigem sessão OASIS ativa.",
       );
     } catch (error) {
       run.status = "failed";
@@ -245,6 +311,7 @@ export class Pipeline {
   ) {
     const actions: Action[] = [];
     for (const platform of run.config.platforms) {
+      if (isNativePlatform(platform)) continue;
       for (const [i, event] of run.config.events.entries())
         if (event.round === round)
           actions.push({
@@ -282,7 +349,12 @@ export class Pipeline {
       .map((a) => `- ${a.content} [action:${a.id}]`)
       .join("\n")}`;
   }
-  async explore(id: string, question: string, agentId?: number) {
+  async explore(
+    id: string,
+    question: string,
+    agentId?: number,
+    selectedPlatform?: Platform,
+  ) {
     if (this.locks.has(id))
       throw new Error("Já existe uma consulta em andamento nesta execução");
     this.locks.add(id);
@@ -293,6 +365,9 @@ export class Pipeline {
         throw new Error("Execução concluída necessária");
       if (agentId !== undefined && !run.personas.some((p) => p.id === agentId))
         throw new Error("Agente inexistente");
+      const platform = selectedPlatform ?? run.config.platforms[0]!;
+      if (!run.config.platforms.includes(platform))
+        throw new Error("Ambiente não pertence à execução");
       if (run.mode === "demo")
         return {
           answer: `[DEMO] Consulta recebida${agentId === undefined ? "" : ` para ${run.personas[agentId]!.name}`}. O modo demonstrativo não gera respostas por IA.\n\n${run.report}`,
@@ -312,14 +387,18 @@ export class Pipeline {
                 ),
               },
             )
-          : (
-              await this.bridge!.interview(
-                id,
-                agentId,
-                run.config.platforms[0]!,
-                question,
-              )
-            ).answer;
+          : isNativePlatform(platform)
+            ? (
+                await interviewNative(
+                  run,
+                  platform,
+                  agentId,
+                  question,
+                  this.llm!,
+                )
+              ).answer
+            : (await this.bridge!.interview(id, agentId, platform, question))
+                .answer;
       this.store.saveRun(run);
       return { answer };
     } finally {

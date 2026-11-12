@@ -1,6 +1,6 @@
 # Social Simulation Lab
 
-Laboratório de cenários sociais com **Node.js + TypeScript**, painel em português e adaptador Python para **Zep Cloud + OASIS**. O objetivo é explorar hipóteses e reações possíveis, com rastreabilidade entre documentos e eventos sintéticos.
+Laboratório de cenários sociais com **Node.js + TypeScript**, painel em português, ambientes próprios de **Instagram e avaliações Google** e adaptador Python para **Zep Cloud + OASIS (Twitter/Reddit)**. O objetivo é explorar hipóteses e reações possíveis, com rastreabilidade entre documentos e eventos sintéticos.
 
 > **MVP experimental.** O modo demo funciona sem chaves. O caminho live está implementado, mas ainda não foi validado ponta a ponta com Zep Cloud, OASIS e um provedor LLM reais. Não é uma ferramenta de previsão calibrada ou coleta de redes sociais reais.
 
@@ -18,19 +18,58 @@ Abra **http://127.0.0.1:3100**. Crie um projeto com material de referência e ex
 
 Para desenvolvimento: `npm run dev`. Para verificar: `npm run check`.
 
+**PowerShell no Windows:** use `npm.cmd` no lugar de `npm`, caso scripts `.ps1` estejam bloqueados. Antes de reinstalar dependências com `npm.cmd ci`, encerre o servidor com **Ctrl+C** para liberar bibliotecas nativas carregadas pelo processo.
+
+## Instagram e avaliações do Google
+
+No painel, escolha **Instagram simulado**, **Avaliações do Google simuladas** ou **Instagram + avaliações do Google**. Para começar, use quatro agentes, cinco rodadas e ID da empresa **0**. Twitter e Reddit continuam disponíveis.
+
+| Ambiente                    | Ações e regras                                                                                                        | Métricas simuladas                                                      |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Instagram                   | Publicações textuais, comentários vinculados a posts e uma curtida por agente/post                                    | Quantidades de posts, comentários e curtidas                            |
+| Perfil da Empresa no Google | Clientes dão de 1 a 5 estrelas; uma avaliação por cliente no MVP; somente a empresa responde uma vez a cada avaliação | Média das estrelas, distribuição, avaliações respondidas e sem resposta |
+
+Os novos ambientes usam **um motor próprio em TypeScript, não OASIS**. No demo as decisões seguem regras e textos fixos; no live o LLM escolhe ações em JSON e o servidor valida permissões, referências e duplicatas. Cada agente decide a partir de um estado comum no início da rodada, após os eventos agendados. Atividade e horários continuam sendo respeitados. Todas as ações são locais à execução.
+
+- O ID da empresa é configurável. Confira os nomes em **Grafo e personas**; nos novos ambientes demo o agente configurado é identificado como Empresa.
+- Instagram recebe uma publicação inicial com o cenário quando não há post ou evento inicial. Um evento agendado vira publicação no Instagram e **comunicado de contexto**, sem estrelas, no ambiente Google.
+- Avaliações Google não são comentários em feed: clientes não respondem uns aos outros nem a empresa avalia a si própria. A média considera somente avaliações sintéticas, excluindo respostas e comunicados. Não inclui avaliações históricas reais.
+- A timeline mostra as estrelas e a referência de comentários, curtidas e respostas. O relatório separa as métricas das plataformas.
+- Na exploração, selecione o **ambiente da entrevista**. Entrevistas Instagram/Google usam persona e histórico público salvo, sem depender de uma sessão OASIS. O live continua exigindo a bridge para o grafo Zep.
+- Não há conexão às contas reais, coleta de avaliações, publicação no Google/Instagram, imagens, vídeos, Reels ou reprodução dos algoritmos proprietários. Essas métricas não são previsões de alcance, vendas ou da nota real de uma empresa.
+
+Exemplo de API:
+
+```json
+{
+  "rounds": 5,
+  "maxAgents": 4,
+  "platforms": ["instagram", "google_reviews"],
+  "businessAgentId": 0,
+  "seed": 42,
+  "events": [
+    {
+      "round": 0,
+      "agentId": 0,
+      "content": "A empresa esclarece as condições da nova oferta."
+    }
+  ]
+}
+```
+
 ## Fluxo implementado
 
-| Etapa      | Demo                                        | Live                                                   |
-| ---------- | ------------------------------------------- | ------------------------------------------------------ |
-| Entrada    | Texto e upload PDF/TXT/Markdown             | Mesma extração local                                   |
-| Ontologia  | Tipos fixos identificados como demonstração | LLM gera JSON validado                                 |
-| Grafo      | Nós hipotéticos locais                      | Bridge aplica ontologia e ingere documentos no Zep     |
-| Personas   | Papéis sintéticos fixos                     | LLM gera personas a partir dos nós retornados pelo Zep |
-| Preparação | Limites, horários e eventos                 | Mesmos contratos enviados ao OASIS                     |
-| Simulação  | Textos fixos, sem modelo de propagação      | OASIS Twitter e/ou Reddit                              |
-| Memória    | Eventos persistidos no SQLite               | Atividades enviadas ao Zep, se habilitado              |
-| Relatório  | Resumo demonstrativo                        | Consulta do grafo, entrevista OASIS e síntese pelo LLM |
-| Exploração | Resposta explicitamente demonstrativa       | Perguntas sobre relatório ou entrevistas com agentes   |
+| Etapa      | Demo                                        | Live                                                       |
+| ---------- | ------------------------------------------- | ---------------------------------------------------------- |
+| Entrada    | Texto e upload PDF/TXT/Markdown             | Mesma extração local                                       |
+| Ontologia  | Tipos fixos identificados como demonstração | LLM gera JSON validado                                     |
+| Grafo      | Nós hipotéticos locais                      | Bridge aplica ontologia e ingere documentos no Zep         |
+| Personas   | Papéis sintéticos fixos                     | LLM gera personas a partir dos nós retornados pelo Zep     |
+| Preparação | Limites, horários e eventos                 | Mesmos contratos enviados ao OASIS                         |
+| Simulação  | Textos fixos e regras por ambiente          | Motor Node Instagram/Google ou OASIS Twitter/Reddit        |
+| Memória    | Eventos persistidos no SQLite               | Atividades enviadas ao Zep, se habilitado                  |
+| Relatório  | Resumo demonstrativo                        | Consulta do grafo, entrevista do agente e síntese pelo LLM |
+| Exploração | Resposta explicitamente demonstrativa       | Perguntas sobre relatório ou entrevistas com agentes       |
 
 Cada execução recebe um grafo separado. Documentos têm origem `source_document`; atividades têm origem `simulation_event`. Personas são hipóteses, mesmo quando baseadas em uma entidade real. O grafo exibido no painel é o inventário inicial; a timeline contém as ações subsequentes.
 
@@ -49,6 +88,7 @@ Painel HTML/JS (mesma origem; sem HTML gerado por IA)
 ```
 
 - API Node: coordenação, extração PDF, validação, fila serial, persistência, geração e exploração de relatórios.
+- Motor Node (`src/native-social.ts`): ações, referências e permissões de Instagram/avaliações Google. O LLM propõe decisões; validação e cálculo das métricas são feitos pelo servidor.
 - SQLite: projetos, configurações, etapas, métricas e resultados; sem Redis/PostgreSQL neste MVP.
 - Bridge Python: ontologia/ingestão/paginação do Zep, ambientes OASIS e entrevistas.
 - OASIS: cada rodada respeita probabilidade/horário de atividade e publica eventos agendados antes das decisões. Os dois ambientes são processados sequencialmente, sem sincronização de conteúdo entre plataformas.

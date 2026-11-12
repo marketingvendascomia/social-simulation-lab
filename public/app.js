@@ -1,4 +1,32 @@
 const $ = (id) => document.getElementById(id);
+const platformNames = {
+  instagram: "Instagram",
+  google_reviews: "Avaliações Google",
+  twitter: "Twitter",
+  reddit: "Reddit",
+};
+const actionNames = {
+  CREATE_POST: "Publicação",
+  CREATE_COMMENT: "Comentário",
+  LIKE_POST: "Curtida",
+  CREATE_REVIEW: "Avaliação",
+  REPLY_REVIEW: "Resposta da empresa",
+  ANNOUNCEMENT: "Comunicado de contexto",
+};
+const platformSelect = document.querySelector('[name="platform"]');
+platformSelect.onchange = () => {
+  const messages = {
+    instagram:
+      "Instagram: publicações textuais, comentários e curtidas simulados. Não reproduz o algoritmo de alcance.",
+    google_reviews:
+      "Google: clientes avaliam com 1 a 5 estrelas; a empresa responde. Uma avaliação por cliente neste MVP. Comunicados dão contexto, sem alterar a nota.",
+    brazil:
+      "Dois ambientes independentes: interações no Instagram e reputação por estrelas no Google. Sem publicar nas plataformas reais.",
+  };
+  $("platform-help").textContent =
+    messages[platformSelect.value] ||
+    "Twitter e Reddit usam OASIS no modo live; no demo, textos fixos.";
+};
 let selectedRun, currentRun, timer;
 $("key").value = sessionStorage.getItem("lab-key") || "";
 async function api(path, options = {}) {
@@ -97,12 +125,21 @@ $("run-form").onsubmit = (e) => {
     const body = {
       rounds: Number(f.get("rounds")),
       maxAgents: Number(f.get("maxAgents")),
+      businessAgentId: Number(f.get("businessAgentId")),
       platforms:
-        f.get("platform") === "both"
-          ? ["twitter", "reddit"]
-          : [f.get("platform")],
+        f.get("platform") === "brazil"
+          ? ["instagram", "google_reviews"]
+          : f.get("platform") === "both"
+            ? ["twitter", "reddit"]
+            : [f.get("platform")],
       events: f.get("event")
-        ? [{ round: 0, agentId: 0, content: f.get("event") }]
+        ? [
+            {
+              round: 0,
+              agentId: Number(f.get("businessAgentId")),
+              content: f.get("event"),
+            },
+          ]
         : [],
     };
     const run = await api(`/projects/${$("project").value}/runs`, {
@@ -118,6 +155,9 @@ async function poll() {
   if (!selectedRun) return;
   const run = await api(`/runs/${selectedRun}`);
   currentRun = run;
+  $("close-session").hidden =
+    run.mode !== "live" ||
+    !run.config.platforms.some((p) => p === "twitter" || p === "reddit");
   $("empty").hidden = true;
   $("result").hidden = false;
   $("run-status").textContent =
@@ -131,6 +171,27 @@ async function poll() {
   );
   $("metrics").textContent =
     `${run.personas.length} agentes · ${run.actions.length} ações · ${run.llmCalls} chamadas Node · ${run.tokens} tokens Node`;
+  const extra = [];
+  if (run.config.platforms.includes("instagram") && run.metrics.instagram) {
+    const m = run.metrics.instagram;
+    extra.push(
+      `Instagram simulado: ${m.posts} publicações, ${m.comments} comentários, ${m.likes} curtidas.`,
+    );
+  }
+  if (
+    run.config.platforms.includes("google_reviews") &&
+    run.metrics.googleReviews
+  ) {
+    const m = run.metrics.googleReviews;
+    extra.push(
+      `Google simulado: ${m.count} avaliações; média ${m.averageStars === null ? "—" : m.averageStars.toLocaleString("pt-BR")}/5; ${m.answered} respondidas, ${m.unanswered} sem resposta. Distribuição: ${Object.entries(
+        m.histogram,
+      )
+        .map(([stars, count]) => `${stars}★: ${count}`)
+        .join(" · ")}. Essa não é a nota real da empresa.`,
+    );
+  }
+  $("platform-metrics").textContent = extra.join("\n");
   $("graph").textContent = JSON.stringify(
     { graph: run.graph, personas: run.personas },
     null,
@@ -141,10 +202,25 @@ async function poll() {
       const div = document.createElement("div");
       div.className = "action";
       const small = document.createElement("small");
-      small.textContent = `${a.platform} · rodada ${a.round + 1} · agente ${a.agentId} · ${a.type}`;
+      const agent = run.personas.find((p) => p.id === a.agentId);
+      small.textContent = `${platformNames[a.platform] || a.platform} · rodada ${a.round + 1} · ${agent?.name || `agente ${a.agentId}`} · ${actionNames[a.type] || a.type}`;
       const text = document.createElement("div");
       text.textContent = a.content;
-      div.append(small, text);
+      div.append(small);
+      if (a.stars) {
+        const stars = document.createElement("strong");
+        stars.className = "stars";
+        stars.textContent =
+          "★".repeat(a.stars) + "☆".repeat(5 - a.stars) + ` (${a.stars}/5)`;
+        div.append(stars);
+      }
+      div.append(text);
+      if (a.targetId) {
+        const reference = document.createElement("small");
+        const target = run.actions.find((t) => t.id === a.targetId);
+        reference.textContent = `Referência: ${target?.content.slice(0, 110) || a.targetId}`;
+        div.append(reference);
+      }
       return div;
     }),
   );
@@ -155,6 +231,12 @@ async function poll() {
     ...run.personas.map((p) => new Option(p.name, String(p.id))),
   );
   $("agent").value = agentValue;
+  const previousPlatform = $("interview-platform").value;
+  $("interview-platform").replaceChildren(
+    ...run.config.platforms.map((p) => new Option(platformNames[p] || p, p)),
+  );
+  if (run.config.platforms.includes(previousPlatform))
+    $("interview-platform").value = previousPlatform;
   await loadRuns();
   if (["queued", "running"].includes(run.status))
     timer = setTimeout(() => void poll().catch((e) => notice(e.message)), 1500);
@@ -164,6 +246,7 @@ $("explore-form").onsubmit = (e) => {
   void action(e.submitter, async () => {
     const body = {
       question: new FormData(e.target).get("question"),
+      platform: $("interview-platform").value,
       ...($("agent").value !== "" ? { agentId: Number($("agent").value) } : {}),
     };
     const answer = await api(`/runs/${selectedRun}/explore`, {
