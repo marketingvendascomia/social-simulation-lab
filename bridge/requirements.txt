@@ -1,0 +1,6 @@
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+python-dotenv>=1,<2
+zep-cloud==3.25.0
+camel-oasis==0.2.5
+camel-ai==0.2.78
