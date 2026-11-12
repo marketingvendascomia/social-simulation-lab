@@ -94,11 +94,35 @@ Como diferentes públicos reagiriam a um aumento de preço acompanhado de novos 
             </div>
             <label
               >Plataforma<select name="platform">
+                <option value="instagram">Instagram simulado</option>
+                <option value="google_reviews">
+                  Avaliações do Google simuladas
+                </option>
+                <option value="brazil">Instagram + avaliações do Google</option>
                 <option value="twitter">Twitter simulado</option>
                 <option value="reddit">Reddit simulado</option>
-                <option value="both">Ambas</option>
+                <option value="both">Twitter + Reddit</option>
               </select></label
-            ><label
+            >
+            <p id="platform-help" class="help">
+              Instagram: publicações textuais, comentários e curtidas simulados.
+              Não reproduz o algoritmo de alcance.
+            </p>
+            <label
+              >ID do agente da empresa<input
+                name="businessAgentId"
+                type="number"
+                min="0"
+                max="19"
+                value="0"
+                required
+            /></label>
+            <p class="help">
+              Nos novos ambientes, o agente 0 representa a empresa no demo.
+              Somente o agente da empresa responde às avaliações do Google.
+              Confira os nomes em “Grafo e personas”.
+            </p>
+            <label
               >Evento agendado (opcional)<textarea
                 name="event"
                 rows="2"
@@ -118,6 +142,7 @@ Como diferentes públicos reagiriam a um aumento de preço acompanhado de novos 
             <p id="run-status"></p>
             <ol id="stages"></ol>
             <div id="metrics" class="metrics"></div>
+            <p id="platform-metrics" class="help"></p>
             <details>
               <summary>Grafo e personas</summary>
               <pre id="graph"></pre>
@@ -135,7 +160,11 @@ Como diferentes públicos reagiriam a um aumento de preço acompanhado de novos 
                 >Interlocutor<select id="agent">
                   <option value="">Agente do relatório</option>
                 </select></label
-              ><label
+              >
+              <label
+                >Ambiente da entrevista<select id="interview-platform"></select
+              ></label>
+              <label
                 >Pergunta<textarea
                   name="question"
                   required
